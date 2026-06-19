@@ -10,6 +10,9 @@ import type {
   PackingList,
   SavedOutfit,
   SmartTip,
+  WeatherState,
+  CareReminder,
+  WeatherRemoval,
 } from '@/types';
 import { clothingItems, savedOutfits, outfitPlans, packingLists } from '@/data/mockData';
 
@@ -23,7 +26,10 @@ interface WardrobeState {
   packingLists: PackingList[];
   selectedDate: string;
   activeCategory: ClothingCategory;
-  weather: { tempHigh: number; tempLow: number; isRainy: boolean };
+  weather: WeatherState;
+  forcedItems: Set<string>;
+  careReminders: CareReminder[];
+  weatherRemovals: Partial<Record<ClothingCategory, WeatherRemoval>>;
   filters: {
     colors: string[];
     materials: string[];
@@ -40,7 +46,7 @@ interface WardrobeState {
   clearCanvas: () => void;
   setSelectedOccasion: (occasion: Occasion | null) => void;
   setSmartTips: (tips: SmartTip[]) => void;
-  setWeather: (weather: Partial<WardrobeState['weather']>) => void;
+  setWeather: (weather: Partial<WeatherState>) => void;
   addOutfitPlan: (plan: Omit<OutfitPlan, 'id' | 'createdAt'>) => void;
   removeOutfitPlan: (id: string) => void;
   addSavedOutfit: (outfit: Omit<SavedOutfit, 'id' | 'savedAt'>) => void;
@@ -49,6 +55,13 @@ interface WardrobeState {
   togglePackingItem: (listId: string, itemId: string) => void;
   setSelectedDate: (date: string) => void;
   updateClothingItem: (id: string, updates: Partial<ClothingItem>) => void;
+  addForcedItem: (itemId: string) => void;
+  removeForcedItem: (itemId: string) => void;
+  addCareReminder: (reminder: Omit<CareReminder, 'id'>) => void;
+  removeCareReminder: (id: string) => void;
+  setWeatherRemoval: (category: ClothingCategory, removal: WeatherRemoval) => void;
+  clearWeatherRemoval: (category: ClothingCategory) => void;
+  clearAllWeatherRemovals: () => void;
   getFilteredClothes: () => ClothingItem[];
   getCanvasItems: () => ClothingItem[];
 }
@@ -79,7 +92,17 @@ export const useWardrobeStore = create<WardrobeState>()(
       packingLists: packingLists,
       selectedDate: new Date().toISOString().slice(0, 10),
       activeCategory: 'top' as ClothingCategory,
-      weather: { tempHigh: 26, tempLow: 18, isRainy: false },
+      weather: {
+        tempHigh: 26,
+        tempLow: 18,
+        isRainy: false,
+        isWindy: false,
+        isStrongSun: false,
+        isTempDrop: false,
+      } as WeatherState,
+      forcedItems: new Set<string>(),
+      careReminders: [],
+      weatherRemovals: {},
       filters: { ...initialFilters },
 
       setActiveCategory: (category) => set({ activeCategory: category }),
@@ -185,6 +208,47 @@ export const useWardrobeStore = create<WardrobeState>()(
           ),
         })),
 
+      addForcedItem: (itemId) =>
+        set((state) => {
+          const next = new Set(state.forcedItems);
+          next.add(itemId);
+          return { forcedItems: next };
+        }),
+
+      removeForcedItem: (itemId) =>
+        set((state) => {
+          const next = new Set(state.forcedItems);
+          next.delete(itemId);
+          return { forcedItems: next };
+        }),
+
+      addCareReminder: (reminder) =>
+        set((state) => ({
+          careReminders: [
+            ...state.careReminders,
+            { ...reminder, id: crypto.randomUUID() },
+          ],
+        })),
+
+      removeCareReminder: (id) =>
+        set((state) => ({
+          careReminders: state.careReminders.filter((r) => r.id !== id),
+        })),
+
+      setWeatherRemoval: (category, removal) =>
+        set((state) => ({
+          weatherRemovals: { ...state.weatherRemovals, [category]: removal },
+        })),
+
+      clearWeatherRemoval: (category) =>
+        set((state) => {
+          const next = { ...state.weatherRemovals };
+          delete next[category];
+          return { weatherRemovals: next };
+        }),
+
+      clearAllWeatherRemovals: () => set({ weatherRemovals: {} }),
+
       getFilteredClothes: () => {
         const { clothes, activeCategory, filters } = get();
         return clothes.filter((item) => {
@@ -206,6 +270,28 @@ export const useWardrobeStore = create<WardrobeState>()(
     }),
     {
       name: 'wardrobe-store',
+      partialize: (state) => ({
+        clothes: state.clothes,
+        outfitCanvas: state.outfitCanvas,
+        selectedOccasion: state.selectedOccasion,
+        outfitPlans: state.outfitPlans,
+        savedOutfits: state.savedOutfits,
+        packingLists: state.packingLists,
+        selectedDate: state.selectedDate,
+        weather: state.weather,
+        forcedItems: [...state.forcedItems],
+        careReminders: state.careReminders,
+        weatherRemovals: state.weatherRemovals,
+      }),
+      merge: (persisted, current) => {
+        const p = persisted as Partial<WardrobeState>;
+        return {
+          ...current,
+          ...p,
+          forcedItems: new Set(p.forcedItems as unknown as string[]),
+          weather: { ...current.weather, ...(p.weather || {}) },
+        };
+      },
     }
   )
 );

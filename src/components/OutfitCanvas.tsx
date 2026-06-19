@@ -1,7 +1,8 @@
-import { X, Shirt, Layers, Wind, ShoppingBag, Gem, Plus, Check } from 'lucide-react';
+import { X, Shirt, Layers, Wind, ShoppingBag, Gem, Plus, Check, AlertTriangle, Eye, CloudRain, Thermometer, Sun, Undo2 } from 'lucide-react';
 import { useDroppable } from '@dnd-kit/core';
 import { cn } from '@/lib/utils';
-import type { ClothingCategory } from '@/types';
+import type { ClothingCategory, WashStatus, WeatherRemoval } from '@/types';
+import { WASH_STATUS_LABELS } from '@/types';
 import { useWardrobeStore } from '@/store/useWardrobeStore';
 
 interface OutfitCanvasProps {
@@ -36,6 +37,11 @@ const colorMap: Record<string, string> = {
   '黄色': '#F9A825',
 };
 
+function getWashStatusLabel(status: WashStatus): string | null {
+  if (status === 'clean') return null;
+  return WASH_STATUS_LABELS[status];
+}
+
 function DropZone({
   category,
   label,
@@ -53,20 +59,61 @@ function DropZone({
 }) {
   const clothes = useWardrobeStore((s) => s.clothes);
   const removeFromCanvas = useWardrobeStore((s) => s.removeFromCanvas);
+  const smartTips = useWardrobeStore((s) => s.smartTips);
+  const forcedItems = useWardrobeStore((s) => s.forcedItems);
+  const addForcedItem = useWardrobeStore((s) => s.addForcedItem);
+  const removeForcedItem = useWardrobeStore((s) => s.removeForcedItem);
+  const weatherRemovals = useWardrobeStore((s) => s.weatherRemovals);
+  const addToCanvas = useWardrobeStore((s) => s.addToCanvas);
+  const clearWeatherRemoval = useWardrobeStore((s) => s.clearWeatherRemoval);
   const { isOver, setNodeRef } = useDroppable({ id: category });
   const item = itemId ? clothes.find((c) => c.id === itemId) : null;
+
+  const itemTip = item ? smartTips.find((t) => t.itemId === item.id && t.removalReason) : null;
+  const isForced = item ? forcedItems.has(item.id) : false;
+  const weatherRemoval: WeatherRemoval | undefined = weatherRemovals[category];
+
+  const handleKeepItem = () => {
+    if (item) addForcedItem(item.id);
+  };
+
+  const handleUnkeepItem = () => {
+    if (item) removeForcedItem(item.id);
+  };
+
+  const handleRestoreWeatherRemoval = () => {
+    if (weatherRemoval) {
+      addToCanvas(category, weatherRemoval.itemId);
+      addForcedItem(weatherRemoval.itemId);
+      clearWeatherRemoval(category);
+    }
+  };
+
+  const weatherRemovalIcon = (reason: string) => {
+    if (reason.includes('降温') || reason.includes('低温')) return Thermometer;
+    if (reason.includes('阵雨') || reason.includes('雨')) return CloudRain;
+    if (reason.includes('大风')) return Wind;
+    if (reason.includes('强晒') || reason.includes('防晒')) return Sun;
+    return AlertTriangle;
+  };
 
   return (
     <div
       ref={setNodeRef}
-      onClick={!item ? onSelect : undefined}
+      onClick={!item && !weatherRemoval ? onSelect : undefined}
       className={cn(
         'relative rounded-xl transition-all duration-300 overflow-hidden',
         item
-          ? 'bg-white border border-sand/50 shadow-card'
-          : isOver
-            ? 'border-2 border-dashed border-terracotta bg-terracotta/5 scale-[1.02] shadow-drop-active'
-            : 'cursor-pointer border border-dashed border-sand/60 bg-ivory/40 hover:border-terracotta/50 hover:bg-cream/60'
+          ? itemTip && !isForced
+            ? 'bg-white border border-terracotta/30 shadow-card ring-1 ring-terracotta/10'
+            : isForced
+              ? 'bg-white border border-amber-300/50 shadow-card'
+              : 'bg-white border border-sand/50 shadow-card'
+          : weatherRemoval
+            ? 'bg-amber-50/40 border border-amber-200/40 shadow-card'
+            : isOver
+              ? 'border-2 border-dashed border-terracotta bg-terracotta/5 scale-[1.02] shadow-drop-active'
+              : 'cursor-pointer border border-dashed border-sand/60 bg-ivory/40 hover:border-terracotta/50 hover:bg-cream/60'
       )}
     >
       {item ? (
@@ -80,8 +127,13 @@ function DropZone({
             {item.washStatus !== 'clean' && (
               <div className="absolute inset-0 flex items-center justify-center bg-charcoal/40 backdrop-blur-[2px]">
                 <span className="rounded-full bg-white/90 px-1.5 py-0.5 text-[9px] font-medium text-charcoal whitespace-nowrap">
-                  {item.washStatus === 'washing' ? '清洗中' : '晾干中'}
+                  {getWashStatusLabel(item.washStatus)}
                 </span>
+              </div>
+            )}
+            {isForced && (
+              <div className="absolute top-0 right-0 rounded-bl-lg bg-amber-400 px-1 py-0.5">
+                <span className="text-[8px] font-bold text-white">保留</span>
               </div>
             )}
           </div>
@@ -100,16 +152,74 @@ function DropZone({
               <span className="text-[10px] text-warm-gray/60">·</span>
               <span className="text-[10px] text-warm-gray">{item.material}</span>
             </div>
+            {itemTip && !isForced && itemTip.removalReason && (
+              <div className="mt-1.5 flex items-start gap-1">
+                <AlertTriangle className="h-3 w-3 text-terracotta shrink-0 mt-0.5" />
+                <span className="text-[10px] text-terracotta leading-tight">{itemTip.removalReason}</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleKeepItem();
+                  }}
+                  className="ml-auto shrink-0 rounded bg-terracotta/10 px-1.5 py-0.5 text-[9px] font-medium text-terracotta hover:bg-terracotta/20 transition-colors whitespace-nowrap"
+                >
+                  保留
+                </button>
+              </div>
+            )}
+            {isForced && itemTip && (
+              <div className="mt-1.5 flex items-start gap-1">
+                <Eye className="h-3 w-3 text-amber-500 shrink-0 mt-0.5" />
+                <span className="text-[10px] text-amber-600 leading-tight">已保留，舒适度可能受影响</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleUnkeepItem();
+                  }}
+                  className="ml-auto shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-600 hover:bg-amber-100 transition-colors whitespace-nowrap"
+                >
+                  取消
+                </button>
+              </div>
+            )}
           </div>
           <button
             onClick={(e) => {
               e.stopPropagation();
               removeFromCanvas(category);
+              if (isForced) removeForcedItem(item.id);
             }}
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sand/40 text-warm-gray/70 transition-all hover:bg-terracotta hover:text-white hover:shadow-sm"
           >
             <X className="h-3 w-3" />
           </button>
+        </div>
+      ) : weatherRemoval ? (
+        <div className="flex items-center gap-2.5 p-2.5">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-amber-100/60">
+            {(() => {
+              const WIcon = weatherRemovalIcon(weatherRemoval.reason);
+              return <WIcon className="h-5 w-5 text-amber-500" />;
+            })()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] font-medium text-amber-700 leading-tight">
+              已移除「{weatherRemoval.itemName}」
+            </p>
+            <p className="mt-0.5 text-[10px] text-amber-600/80 leading-tight">
+              {weatherRemoval.reason}
+            </p>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRestoreWeatherRemoval();
+              }}
+              className="mt-1.5 flex items-center gap-1 rounded-md bg-amber-100/80 px-2 py-1 text-[10px] font-medium text-amber-700 hover:bg-amber-200/80 transition-colors"
+            >
+              <Undo2 className="h-2.5 w-2.5" />
+              保留此单品
+            </button>
+          </div>
         </div>
       ) : (
         <div className="flex items-center gap-2.5 p-2.5">

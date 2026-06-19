@@ -1,8 +1,11 @@
 import { useDraggable } from '@dnd-kit/core';
 import { Sun, Leaf, Snowflake, Flower, Droplets, Clock } from 'lucide-react';
-import type { ClothingItem, Season } from '@/types';
+import type { ClothingItem, Season, WashStatus } from '@/types';
+import { WASH_STATUS_LABELS } from '@/types';
 import { cn } from '@/lib/utils';
 import { parseISO, differenceInDays } from 'date-fns';
+
+const NON_CLEAN_STATUSES: WashStatus[] = ['washing', 'drying', 'ironing', 'dry_cleaning', 'lent_out'];
 
 interface ClothingCardProps {
   item: ClothingItem;
@@ -45,7 +48,7 @@ const colorMap: Record<string, string> = {
 };
 
 export default function ClothingCard({ item, onClick, compact }: ClothingCardProps) {
-  const isUnavailable = item.washStatus === 'washing' || item.washStatus === 'drying';
+  const isUnavailable = NON_CLEAN_STATUSES.includes(item.washStatus);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: item.id,
     data: { category: item.category },
@@ -79,7 +82,7 @@ export default function ClothingCard({ item, onClick, compact }: ClothingCardPro
             <div className="flex items-center gap-1 rounded-full bg-white/90 px-2 py-0.5">
               <Droplets className="h-3 w-3 text-blue-400" />
               <span className="text-[10px] font-medium text-charcoal">
-                {item.washStatus === 'washing' ? '清洗中' : '晾干中'}
+                {WASH_STATUS_LABELS[item.washStatus]}
               </span>
             </div>
           </div>

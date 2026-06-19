@@ -1,4 +1,4 @@
-import { AlertTriangle, Info, CheckCircle, Thermometer, CloudRain, Palette, Droplets, Ruler, Repeat } from 'lucide-react';
+import { AlertTriangle, Info, CheckCircle, Thermometer, CloudRain, Palette, Droplets, Ruler, Repeat, Wind, Sun } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SmartTip, TipLevel } from '@/types';
 import { useWardrobeStore } from '@/store/useWardrobeStore';
@@ -12,8 +12,11 @@ const levelStyles: Record<TipLevel, { bg: string; border: string; icon: React.El
 const typeIcons: Record<string, React.ElementType> = {
   temperature: Thermometer,
   rain: CloudRain,
+  wind: Wind,
+  sun: Sun,
   color_clash: Palette,
   washing: Droplets,
+  care_status: Droplets,
   size_fit: Ruler,
   repeat_wear: Repeat,
 };

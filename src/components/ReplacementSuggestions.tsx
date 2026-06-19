@@ -1,25 +1,42 @@
 import { RefreshCw } from 'lucide-react';
-import type { SmartTip, ClothingItem, ClothingCategory } from '@/types';
+import type { SmartTip, ClothingCategory, AlternativeWithReasons } from '@/types';
 import { useWardrobeStore } from '@/store/useWardrobeStore';
+import { findAlternatives } from '@/utils/smartTips';
+import { cn } from '@/lib/utils';
 
 interface ReplacementSuggestionsProps {
   tips: SmartTip[];
 }
 
 function SuggestionCard({
-  item,
+  alt,
   onReplace,
 }: {
-  item: ClothingItem;
+  alt: AlternativeWithReasons;
   onReplace: () => void;
 }) {
   return (
     <button
       onClick={onReplace}
-      className="flex w-[72px] shrink-0 flex-col items-center gap-1 rounded-xl border border-sand/40 bg-white p-1.5 shadow-card transition-all hover:border-terracotta/40 hover:shadow-zone active:scale-[0.97]"
+      className="flex w-[80px] shrink-0 flex-col items-center gap-1 rounded-xl border border-sand/40 bg-white p-1.5 shadow-card transition-all hover:border-terracotta/40 hover:shadow-zone active:scale-[0.97]"
     >
-      <img src={item.photo} alt={item.name} className="h-12 w-12 rounded-lg object-cover" />
-      <p className="w-full truncate text-center text-[10px] font-medium text-charcoal">{item.name}</p>
+      <img src={alt.item.photo} alt={alt.item.name} className="h-12 w-12 rounded-lg object-cover" />
+      <p className="w-full truncate text-center text-[10px] font-medium text-charcoal">{alt.item.name}</p>
+      <div className="flex items-center gap-0.5 flex-wrap justify-center">
+        {alt.matchReasons.map((reason) => (
+          <span
+            key={reason}
+            className={cn(
+              'text-[7px] px-1 py-0.5 rounded',
+              reason === '颜色相近' ? 'bg-pink-50 text-pink-400' :
+              reason === '版型相似' ? 'bg-blue-50 text-blue-400' :
+              'bg-green-50 text-green-400'
+            )}
+          >
+            {reason}
+          </span>
+        ))}
+      </div>
     </button>
   );
 }
@@ -42,17 +59,11 @@ export default function ReplacementSuggestions({ tips }: ReplacementSuggestionsP
     return true;
   });
 
-  const getAlternatives = (itemId: string): ClothingItem[] => {
+  const getAlternatives = (itemId: string): AlternativeWithReasons[] => {
     const item = clothes.find((c) => c.id === itemId);
     if (!item) return [];
     const canvasIds = new Set(Object.values(outfitCanvas).filter(Boolean) as string[]);
-    return clothes.filter(
-      (c) =>
-        c.category === item.category &&
-        c.id !== item.id &&
-        !canvasIds.has(c.id) &&
-        c.washStatus === 'clean'
-    ).slice(0, 4);
+    return findAlternatives(item, clothes, canvasIds);
   };
 
   const hasAnyAlternatives = uniqueProblemItems.some((t) => getAlternatives(t.itemId!).length > 0);
@@ -83,9 +94,9 @@ export default function ReplacementSuggestions({ tips }: ReplacementSuggestionsP
               <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
                 {alternatives.map((alt) => (
                   <SuggestionCard
-                    key={alt.id}
-                    item={alt}
-                    onReplace={() => addToCanvas(item.category as ClothingCategory, alt.id)}
+                    key={alt.item.id}
+                    alt={alt}
+                    onReplace={() => addToCanvas(item.category as ClothingCategory, alt.item.id)}
                   />
                 ))}
               </div>

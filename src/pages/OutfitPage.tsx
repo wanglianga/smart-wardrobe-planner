@@ -1,9 +1,9 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DndContext, DragOverlay } from '@dnd-kit/core';
 import { Save, CalendarPlus, Trash2, Sparkles, Calendar, Luggage, ChevronDown, ChevronUp, Shirt } from 'lucide-react';
 import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core';
-import type { ClothingCategory } from '@/types';
+import type { ClothingCategory, ClothingItem } from '@/types';
 import { useWardrobeStore } from '@/store/useWardrobeStore';
 import { generateSmartTips } from '@/utils/smartTips';
 import CategoryNav from '@/components/CategoryNav';
@@ -15,12 +15,19 @@ import SmartTips from '@/components/SmartTips';
 import ReplacementSuggestions from '@/components/ReplacementSuggestions';
 import CalendarView from '@/components/CalendarView';
 import PackingListPanel from '@/components/PackingListPanel';
+import CareStatusModal from '@/components/CareStatusModal';
+
+const NON_CLEAN_STATUSES = ['washing', 'drying', 'ironing', 'dry_cleaning', 'lent_out'];
 
 export default function OutfitPage() {
   const navigate = useNavigate();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showPacking, setShowPacking] = useState(false);
+  const [pendingCareItem, setPendingCareItem] = useState<{
+    item: ClothingItem;
+    category: ClothingCategory;
+  } | null>(null);
 
   const clothes = useWardrobeStore((s) => s.clothes);
   const activeCategory = useWardrobeStore((s) => s.activeCategory);
@@ -33,6 +40,13 @@ export default function OutfitPage() {
   const addSavedOutfit = useWardrobeStore((s) => s.addSavedOutfit);
   const addOutfitPlan = useWardrobeStore((s) => s.addOutfitPlan);
   const setSmartTips = useWardrobeStore((s) => s.setSmartTips);
+  const addCareReminder = useWardrobeStore((s) => s.addCareReminder);
+  const addForcedItem = useWardrobeStore((s) => s.addForcedItem);
+  const selectedDate = useWardrobeStore((s) => s.selectedDate);
+  const removeFromCanvas = useWardrobeStore((s) => s.removeFromCanvas);
+  const setWeatherRemoval = useWardrobeStore((s) => s.setWeatherRemoval);
+  const clearAllWeatherRemovals = useWardrobeStore((s) => s.clearAllWeatherRemovals);
+  const forcedItems = useWardrobeStore((s) => s.forcedItems);
 
   const filteredClothes = useMemo(
     () => clothes.filter((item) => item.category === activeCategory),
@@ -44,10 +58,53 @@ export default function OutfitPage() {
     return ids.map((id) => clothes.find((item) => item.id === id)).filter((item) => item !== undefined);
   }, [outfitCanvas, clothes]);
 
+  const prevWeatherRef = useRef(weather);
+  const autoRemovalDoneRef = useRef(false);
+
   useEffect(() => {
     const tips = generateSmartTips(canvasItems as NonNullable<typeof canvasItems>[number][], selectedOccasion, weather);
     setSmartTips(tips);
-  }, [canvasItems, selectedOccasion, weather, setSmartTips]);
+
+    const prev = prevWeatherRef.current;
+    const weatherChanged =
+      prev.isTempDrop !== weather.isTempDrop ||
+      prev.isRainy !== weather.isRainy ||
+      prev.isWindy !== weather.isWindy ||
+      prev.isStrongSun !== weather.isStrongSun ||
+      prev.tempHigh !== weather.tempHigh ||
+      prev.tempLow !== weather.tempLow;
+
+    if (weatherChanged && !autoRemovalDoneRef.current) {
+      const weatherRemovalTips = tips.filter(
+        (t) =>
+          t.removalReason &&
+          ['temperature', 'rain', 'wind', 'sun'].includes(t.type) &&
+          t.itemId &&
+          !forcedItems.has(t.itemId)
+      );
+
+      if (weatherRemovalTips.length > 0) {
+        autoRemovalDoneRef.current = true;
+        for (const tip of weatherRemovalTips) {
+          const item = clothes.find((c) => c.id === tip.itemId);
+          if (item) {
+            removeFromCanvas(item.category);
+            setWeatherRemoval(item.category, {
+              itemId: item.id,
+              itemName: item.name,
+              reason: tip.removalReason!,
+            });
+          }
+        }
+      }
+    }
+
+    if (autoRemovalDoneRef.current && !weatherChanged) {
+      autoRemovalDoneRef.current = false;
+    }
+
+    prevWeatherRef.current = weather;
+  }, [canvasItems, selectedOccasion, weather, setSmartTips, clothes, forcedItems, removeFromCanvas, setWeatherRemoval]);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(String(event.active.id));
@@ -63,16 +120,44 @@ export default function OutfitPage() {
     const overId = String(over.id);
     const categories: ClothingCategory[] = ['top', 'bottom', 'outerwear', 'shoes_bag', 'accessory'];
     if (categories.includes(overId as ClothingCategory)) {
-      addToCanvas(overId as ClothingCategory, itemId);
+      const targetCategory = overId as ClothingCategory;
+      if (NON_CLEAN_STATUSES.includes(item.washStatus)) {
+        setPendingCareItem({ item, category: targetCategory });
+      } else {
+        addToCanvas(targetCategory, itemId);
+      }
     }
   };
 
   const handleCardClick = useCallback((id: string) => {
     const item = clothes.find((c) => c.id === id);
     if (item) {
-      addToCanvas(item.category, item.id);
+      if (NON_CLEAN_STATUSES.includes(item.washStatus)) {
+        setPendingCareItem({ item, category: item.category });
+      } else {
+        addToCanvas(item.category, item.id);
+      }
     }
   }, [clothes, addToCanvas]);
+
+  const handleCareConfirm = () => {
+    if (!pendingCareItem) return;
+    const { item, category } = pendingCareItem;
+    addToCanvas(category, item.id);
+    addForcedItem(item.id);
+    addCareReminder({
+      clothingId: item.id,
+      clothingName: item.name,
+      careStatus: item.washStatus as Exclude<typeof item.washStatus, 'clean'>,
+      date: selectedDate,
+      note: `「${item.name}」在${item.washStatus === 'washing' ? '待洗' : item.washStatus === 'drying' ? '晾干' : item.washStatus === 'ironing' ? '熨烫' : item.washStatus === 'dry_cleaning' ? '送洗' : '借出'}状态下被强行使用`,
+    });
+    setPendingCareItem(null);
+  };
+
+  const handleCareCancel = () => {
+    setPendingCareItem(null);
+  };
 
   const handleSave = () => {
     const itemIds = Object.values(outfitCanvas).filter((id): id is string => id !== null);
@@ -225,6 +310,15 @@ export default function OutfitPage() {
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      {pendingCareItem && (
+        <CareStatusModal
+          item={pendingCareItem.item}
+          targetCategory={pendingCareItem.category}
+          onConfirm={handleCareConfirm}
+          onCancel={handleCareCancel}
+        />
+      )}
     </div>
   );
 }
